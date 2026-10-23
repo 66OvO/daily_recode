@@ -429,6 +429,17 @@ async function init(){
         if(!data.foods) data.foods = [];
         if(!data.todos) data.todos = [];
         if(!data.bills) data.bills = [];
+        // 分类配置跨设备同步
+        if(data.categoryConfig){
+          categoryConfig = data.categoryConfig;
+          if(!categoryConfig.expenseColors) categoryConfig.expenseColors = {};
+          if(!categoryConfig.incomeColors) categoryConfig.incomeColors = {};
+          localStorage.setItem(CAT_KEY, JSON.stringify(categoryConfig));
+        } else {
+          // 云端还没有分类配置，把当前(本地)配置推上去，保证手机能看到
+          data.categoryConfig = JSON.parse(JSON.stringify(categoryConfig));
+          saveData();
+        }
         // 同步到本地缓存
         localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
         setSyncStatus("ok", "已连接云端");
@@ -489,6 +500,14 @@ async function saveData(){
 }
 
 function loadCategory(){
+  // 优先使用云端 data 里的分类配置（保证跨设备一致）
+  if(data && data.categoryConfig){
+    categoryConfig = data.categoryConfig;
+    if(!categoryConfig.expenseColors) categoryConfig.expenseColors = {};
+    if(!categoryConfig.incomeColors) categoryConfig.incomeColors = {};
+    localStorage.setItem(CAT_KEY, JSON.stringify(categoryConfig));
+    return;
+  }
   const c = localStorage.getItem(CAT_KEY);
   if(c){
     try {
@@ -500,6 +519,11 @@ function loadCategory(){
 }
 function saveCategory(){
   localStorage.setItem(CAT_KEY, JSON.stringify(categoryConfig));
+  // 同时写入云端 data，实现分类配置跨设备同步
+  if(data && typeof data === "object"){
+    data.categoryConfig = JSON.parse(JSON.stringify(categoryConfig));
+    saveData();
+  }
 }
 
 function setToday(){
@@ -793,6 +817,11 @@ function importData(file){
       if(imported.foods) data.foods = imported.foods;
       if(imported.todos) data.todos = imported.todos;
       if(imported.savings) data.savings = imported.savings;
+      if(imported.categoryConfig){
+        categoryConfig = imported.categoryConfig;
+        if(!categoryConfig.expenseColors) categoryConfig.expenseColors = {};
+        if(!categoryConfig.incomeColors) categoryConfig.incomeColors = {};
+      }
       saveData(); renderAll();
       alert("导入成功！");
     } catch(err) { alert("导入失败：文件格式不正确。"); }
@@ -812,6 +841,11 @@ async function manualSync(){
     if(cloudData){
       // 云端数据较新，合并
       data = cloudData;
+      if(!data.savings) data.savings = [];
+      if(!data.categoryConfig){
+        data.categoryConfig = JSON.parse(JSON.stringify(categoryConfig));
+      }
+      loadCategory();
       saveLocal();
       renderAll();
     }
