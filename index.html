@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>日常记录本 v4 - 云端同步版</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --text: #1f2937;
+      --card: #f9fafb;
+      --border: #e5e7eb;
+      --primary: #3b82f6;
+    }
+    .dark {
+      --bg: #111827;
+      --text: #f3f4f6;
+      --card: #1f2937;
+      --border: #374151;
+      --primary: #60a5fa;
+    }
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      transition: 0.25s ease;
+    }
+    .card {
+      background-color: var(--card);
+      border: 1px solid var(--border);
+    }
+    .border-color {
+      border-color: var(--border);
+    }
+    .btn-primary {
+      background-color: var(--primary);
+      color: white;
+    }
+    input, select, textarea {
+      background-color: var(--card);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    input[type="color"] {
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      background: transparent;
+    }
+    .tab-active {
+      border-bottom: 2px solid var(--primary);
+      color: var(--primary);
+    }
+    .priority-high { color:#ef4444; }
+    .priority-mid { color:#f59e0b; }
+    .priority-low { color:#10b981; }
+    .stat-card {
+      text-align: center;
+      padding: 12px 8px;
+      border-radius: 8px;
+    }
+    .stat-inc { background: #dcfce7; color: #166534; }
+    .stat-exp { background: #fee2e2; color: #991b1b; }
+    .stat-bal { background: #dbeafe; color: #1e40af; }
+    .dark .stat-inc { background: #14532d; color: #86efac; }
+    .dark .stat-exp { background: #7f1d1d; color: #fca5a5; }
+    .dark .stat-bal { background: #1e3a8a; color: #93c5fd; }
+    .nutrient-card {
+      text-align: center;
+      padding: 10px 6px;
+      border-radius: 8px;
+    }
+    .nut-protein { background: #dbeafe; color: #1e40af; }
+    .nut-fat { background: #fef3c7; color: #92400e; }
+    .nut-carb { background: #dcfce7; color: #166534; }
+    .dark .nut-protein { background: #1e3a8a; color: #93c5fd; }
+    .dark .nut-fat { background: #78350f; color: #fcd34d; }
+    .dark .nut-carb { background: #14532d; color: #86efac; }
+    .sync-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 4px;
+    }
+    .sync-ok { background: #10b981; }
+    .sync-syncing { background: #f59e0b; animation: pulse 1s infinite; }
+    .sync-error { background: #ef4444; }
+    .sync-offline { background: #6b7280; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+  </style>
+</head>
+<body class="min-h-screen p-4 md:p-6">
+  <div class="max-w-4xl mx-auto">
+    <!-- 头部 -->
+    <div class="flex justify-between items-center mb-6 flex-wrap gap-2">
+      <h1 class="text-xl md:text-2xl font-bold">日常记录本</h1>
+      <div class="flex gap-2 items-center flex-wrap">
+        <span id="syncStatus" class="text-xs opacity-70 flex items-center">
+          <span class="sync-dot sync-offline"></span>未连接云端
+        </span>
+        <button id="syncBtn" class="px-3 py-1 rounded card text-xs">🔄 同步</button>
+        <button id="themeBtn" class="px-3 py-1 rounded card">🌓</button>
+        <button id="importBtn" class="px-3 py-1 rounded card">📂 导入</button>
+        <button id="exportBtn" class="px-3 py-1 rounded card">💾 导出</button>
+        <input type="file" id="importFile" accept=".json" class="hidden">
+      </div>
+    </div>
+
+    <!-- 日期选择 -->
+    <div class="card rounded-lg p-4 mb-6">
+      <div class="flex flex-wrap gap-3 items-center">
+        <label class="font-medium">选择日期：</label>
+        <input type="date" id="datePicker" class="px-2 py-1 rounded">
+        <button id="todayBtn" class="btn-primary px-3 py-1 rounded">回到今天</button>
+      </div>
+    </div>
+
+    <!-- 标签栏 -->
+    <div class="flex border-b border-color mb-4 flex-wrap">
+      <button class="tab-btn tab-active px-4 py-2" data-tab="bill">💰 记账</button>
+      <button class="tab-btn px-4 py-2" data-tab="food">🍽️ 饮食</button>
+      <button class="tab-btn px-4 py-2" data-tab="todo">✅ 待办</button>
+      <button class="tab-btn px-4 py-2" data-tab="saving">🏦 储蓄</button>
+    </div>
+
+    <!-- ========== 记账面板 ========== -->
+    <div class="tab-panel" id="panel-bill">
+      <div class="grid grid-cols-3 gap-2 mb-4">
+        <div class="stat-card stat-inc card">
+          <div class="text-sm opacity-80">今日收入</div>
+          <div class="text-lg font-bold" id="todayInc">0.00</div>
+        </div>
+        <div class="stat-card stat-exp card">
+          <div class="text-sm opacity-80">今日支出</div>
+          <div class="text-lg font-bold" id="todayExp">0.00</div>
+        </div>
+        <div class="stat-card stat-bal card">
+          <div class="text-sm opacity-80">今日结余</div>
+          <div class="text-lg font-bold" id="todayBal">0.00</div>
+        </div>
+      </div>
+
+      <div class="card rounded-lg p-4 mb-4">
+        <h2 class="font-bold mb-3">分类管理（点击色块可改饼图颜色）</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <div class="mb-2 font-medium">支出分类</div>
+            <div class="flex gap-1 mb-2">
+              <input id="newExpCat" placeholder="新增支出分类" class="flex-1 px-2 py-1 rounded">
+              <button id="addExpCatBtn" class="btn-primary px-2 py-1 rounded">添加</button>
+            </div>
+            <div id="expCatList" class="flex flex-wrap gap-2"></div>
+          </div>
+          <div>
+            <div class="mb-2 font-medium">收入分类</div>
+            <div class="flex gap-1 mb-2">
+              <input id="newIncCat" placeholder="新增收入分类" class="flex-1 px-2 py-1 rounded">
+              <button id="addIncCatBtn" class="btn-primary px-2 py-1 rounded">添加</button>
+            </div>
+            <div id="incCatList" class="flex flex-wrap gap-2"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card rounded-lg p-4 mb-4">
+        <h2 class="font-bold mb-3">新增收支</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <select id="billType">
+            <option value="exp">支出</option>
+            <option value="inc">收入</option>
+          </select>
+          <select id="billCat"></select>
+          <input type="number" step="0.01" id="billAmt" placeholder="金额">
+          <input type="text" id="billNote" placeholder="备注">
+        </div>
+        <button id="addBill" class="btn-primary px-4 py-2 rounded mt-3">添加记录</button>
+      </div>
+      <div class="card rounded-lg p-4 mb-4">
+        <h2 class="font-bold mb-3">当月统计</h2>
+        <div class="grid grid-cols-3 gap-2 text-center mb-3">
+          <div>总收入：<span id="sumInc">0</span></div>
+          <div>总支出：<span id="sumExp">0</span></div>
+          <div>结余：<span id="sumBal">0</span></div>
+        </div>
+        <canvas id="billChart"></canvas>
+      </div>
+      <div class="card rounded-lg p-4">
+        <h2 class="font-bold mb-3">当日记录</h2>
+        <div id="billList" class="space-y-2 max-h-64 overflow-auto"></div>
+      </div>
+    </div>
+
+    <!-- ========== 饮食面板 ========== -->
+    <div class="tab-panel hidden" id="panel-food">
+      <div class="card rounded-lg p-4 mb-4">
+        <h2 class="font-bold mb-3">新增饮食</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <select id="foodMeal">
+            <option value="早餐">早餐</option>
+            <option value="午餐">午餐</option>
+            <option value="晚餐">晚餐</option>
+            <option value="加餐">加餐</option>
+          </select>
+          <input type="text" id="foodName" placeholder="食物名称">
+          <input type="number" step="1" id="foodCal" placeholder="热量(kcal)">
+          <input type="text" id="foodNote" placeholder="备注">
+        </div>
+        <div class="grid grid-cols-3 gap-3 mt-3">
+          <input type="number" step="0.1" id="foodProtein" placeholder="蛋白质(g)">
+          <input type="number" step="0.1" id="foodFat" placeholder="脂肪(g)">
+          <input type="number" step="0.1" id="foodCarb" placeholder="碳水(g)">
+        </div>
+        <button id="addFood" class="btn-primary px-4 py-2 rounded mt-3">添加记录</button>
+      </div>
+
+      <div class="grid grid-cols-4 gap-2 mb-4">
+        <div class="nutrient-card card">
+          <div class="text-sm opacity-80">总热量</div>
+          <div class="text-lg font-bold" id="calTotal">0</div>
+          <div class="text-xs opacity-60">kcal</div>
+        </div>
+        <div class="nutrient-card nut-protein card">
+          <div class="text-sm opacity-80">蛋白质</div>
+          <div class="text-lg font-bold" id="proteinTotal">0</div>
+          <div class="text-xs opacity-60">g</div>
+        </div>
+        <div class="nutrient-card nut-fat card">
+          <div class="text-sm opacity-80">脂肪</div>
+          <div class="text-lg font-bold" id="fatTotal">0</div>
+          <div class="text-xs opacity-60">g</div>
+        </div>
+        <div class="nutrient-card nut-carb card">
+          <div class="text-sm opacity-80">碳水</div>
+          <div class="text-lg font-bold" id="carbTotal">0</div>
+          <div class="text-xs opacity-60">g</div>
+        </div>
+      </div>
+
+      <div class="card rounded-lg p-4">
+        <h2 class="font-bold mb-3">当日饮食</h2>
+        <div id="foodList" class="space-y-2 max-h-64 overflow-auto"></div>
+      </div>
+    </div>
+
+    <!-- ========== 待办面板 ========== -->
+    <div class="tab-panel hidden" id="panel-todo">
+      <div class="card rounded-lg p-4 mb-4">
+        <h2 class="font-bold mb-3">新增待办</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <input type="text" id="todoText" placeholder="待办内容">
+          <select id="todoCat">
+            <option value="work">💼 工作</option>
+            <option value="daily">🏠 日常</option>
+            <option value="travel">🚗 出行</option>
+          </select>
+          <select id="todoPri">
+            <option value="high">🔴 高优先级</option>
+            <option value="mid">🟡 中优先级</option>
+            <option value="low">🟢 低优先级</option>
+          </select>
+          <input type="time" id="todoStartTime" placeholder="开始时间（可选）">
+          <input type="time" id="todoEndTime" placeholder="结束时间（可选）">
+        </div>
+        <div class="grid grid-cols-2 gap-3 mt-3">
+          <div>
+            <label class="text-sm opacity-70 block mb-1">任务日期（默认今天）</label>
+            <input type="date" id="todoStartDate" class="w-full px-2 py-1 rounded">
+          </div>
+          <div>
+            <label class="text-sm opacity-70 block mb-1">结束日期（留空=只在开始日期）</label>
+            <input type="date" id="todoEndDate" class="w-full px-2 py-1 rounded">
+          </div>
+        </div>
+        <div class="text-xs opacity-60 mt-2">💡 填好开始和结束日期，任务会在这段时间内每天各生成一条。</div>
+        <button id="addTodo" class="btn-primary px-4 py-2 rounded mt-3">添加待办</button>
+      </div>
+
+      <div id="upcomingTodoBanner" class="card rounded-lg p-3 mb-4 hidden">
+        <div class="text-sm">📅 未来 <span id="upcomingCount">0</span> 天内共有 <span id="upcomingTotal">0</span> 条待办</div>
+      </div>
+
+      <div class="card rounded-lg p-4">
+        <h2 class="font-bold mb-3">当日待办</h2>
+        <div id="todoList" class="space-y-2 max-h-72 overflow-auto"></div>
+      </div>
+    </div>
+
+    <!-- ========== 储蓄面板 ========== -->
+    <div class="tab-panel hidden" id="panel-saving">
+      <div class="card rounded-lg p-4 mb-4">
+        <h2 class="font-bold mb-3">储蓄总览</h2>
+        <div class="grid grid-cols-2 gap-2 text-center">
+          <div>账户数：<span id="savCount">0</span></div>
+          <div>总储蓄：<span id="savTotal">0.00</span> 元</div>
+        </div>
+      </div>
+
+      <div class="card rounded-lg p-4 mb-4">
+        <h2 class="font-bold mb-3">新增储蓄账户</h2>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <input type="text" id="savName" placeholder="账户名称（如：余额宝、定期存款）">
+          <input type="number" step="0.01" id="savInit" placeholder="初始金额">
+          <input type="text" id="savNote" placeholder="备注（可选）">
+        </div>
+        <button id="addSavAccount" class="btn-primary px-4 py-2 rounded mt-3">添加账户</button>
+      </div>
+
+      <div id="savList" class="space-y-3"></div>
+    </div>
+  </div>
+
+<script>
+// ============================================================
+// ☁️ 云端配置区 —— 把下面两个引号里填上你的 Supabase 信息
+// ============================================================
+const SUPABASE_URL = "https://kibkemmgyrvztdhlvrrk.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_Gsb8tLimWSdQ31IL7ENVJA_pCvkbgvu";
+// ============================================================
+
+// ====== 预置数据（首次打开时的初始数据） ======
+const EMBEDDED_DATA = {
+  "bills": [
+    {"date":"2026-10-22","type":"exp","cat":"交通","amt":"11","note":"打车去健身房"},
+    {"date":"2026-10-22","type":"exp","cat":"餐饮","amt":"41","note":"午饭：鲈鱼+面"},
+    {"date":"2026-10-22","type":"exp","cat":"餐饮","amt":"10.6","note":"牛奶"},
+    {"date":"2026-10-22","type":"exp","cat":"餐饮","amt":"3.6","note":"速溶咖啡"},
+    {"date":"2026-10-22","type":"exp","cat":"餐饮","amt":"30","note":"晚饭：牛肉"},
+    {"date":"2026-10-22","type":"exp","cat":"交通","amt":"3","note":"地铁"},
+    {"date":"2026-10-22","type":"inc","cat":"存款","amt":"595.31","note":"之前的存款"}
+  ],
+  "foods": [],
+  "todos": [],
+  "savings": []
+};
+
+const STORAGE_KEY = "daily_record_data";
+const CAT_KEY = "bill_category_config";
+let currentDate = "";
+let activeTab = "bill";
+let billChart = null;
+let isCloudMode = false;
+
+let data = {
+  bills: [],
+  foods: [],
+  todos: [],
+  savings: []
+};
+
+let categoryConfig = {
+  expense: ["餐饮", "交通", "购物", "房租", "娱乐", "医疗", "其他"],
+  income: ["工资", "红包", "存款", "其他"],
+  expenseColors: {
+    "餐饮": "#ef4444", "交通": "#f59e0b", "购物": "#8b5cf6",
+    "房租": "#6b7280", "娱乐": "#ec4899", "医疗": "#10b981", "其他": "#64748b"
+  },
+  incomeColors: {
+    "工资": "#22c55e", "红包": "#f97316", "存款": "#06b6d4", "其他": "#64748b"
+  }
+};
+
+const DEFAULT_PALETTE = ['#3b82f6','#ef4444','#f59e0b','#10b981','#8b5cf6','#ec4899','#6b7280','#22c55e','#06b6d4','#f97316'];
+
+// ====== 同步状态管理 ======
+function setSyncStatus(status, msg){
+  const el = document.getElementById("syncStatus");
+  const dot = el.querySelector(".sync-dot");
+  dot.className = "sync-dot sync-" + status;
+  el.innerHTML = `<span class="sync-dot sync-${status}"></span>${msg}`;
+}
+
+// ====== 云端 API 调用 ======
+async function cloudLoad(){
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/app_data?id=eq.1&select=data`, {
+    headers: {
+      "apikey": SUPABASE_ANON_KEY,
+      "Authorization": `Bearer ${SUPABASE_ANON_KEY}`
+    }
+  });
+  if(!res.ok) throw new Error("HTTP " + res.status);
+  const rows = await res.json();
+  if(rows.length === 0) return null; // 还没有数据
+  return rows[0].data;
+}
+
+async function cloudSave(payload){
+  // 用 upsert：存在就更新，不存在就插入，一条请求搞定
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/app_data`, {
+    method: "POST",
+    headers: {
+      "apikey": SUPABASE_ANON_KEY,
+      "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+      "Content-Type": "application/json",
+      "Prefer": "return=representation,resolution=merge-duplicates"
+    },
+    body: JSON.stringify({ id: 1, data: payload, updated_at: new Date().toISOString() })
+  });
+  if(!res.ok){
+    const errText = await res.text();
+    throw new Error(`HTTP ${res.status}: ${errText.substring(0, 200)}`);
+  }
+}
+
+// ====== 初始化 ======
+async function init(){
+  loadCategory();
+  bindEvents();
+  setToday();
+  document.getElementById("todoStartDate").value = currentDate;
+
+  // 检查是否配置了云端
+  if(SUPABASE_URL && SUPABASE_ANON_KEY){
+    isCloudMode = true;
+    setSyncStatus("syncing", "连接云端...");
+    try {
+      const cloudData = await cloudLoad();
+      if(cloudData){
+        data = cloudData;
+        // 兼容旧数据
+        if(!data.savings) data.savings = [];
+        if(!data.foods) data.foods = [];
+        if(!data.todos) data.todos = [];
+        if(!data.bills) data.bills = [];
+        // 同步到本地缓存
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        setSyncStatus("ok", "已连接云端");
+      } else {
+        // 云端没有数据，用预置数据
+        data = JSON.parse(JSON.stringify(EMBEDDED_DATA));
+        await cloudSave(data);
+        setSyncStatus("ok", "已初始化云端");
+      }
+    } catch(e) {
+      console.error("云端加载失败:", e);
+      // 降级为本地缓存
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if(raw){
+        try { data = JSON.parse(raw); } catch(e) { data = JSON.parse(JSON.stringify(EMBEDDED_DATA)); }
+      } else {
+        data = JSON.parse(JSON.stringify(EMBEDDED_DATA));
+      }
+      setSyncStatus("error", "云端连接失败，使用本地数据");
+    }
+  } else {
+    // 纯本地模式
+    setSyncStatus("offline", "未配置云端（本地模式）");
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(raw){
+      try {
+        data = JSON.parse(raw);
+        if(!data.savings) data.savings = [];
+      } catch(e) { data = JSON.parse(JSON.stringify(EMBEDDED_DATA)); }
+    } else {
+      data = JSON.parse(JSON.stringify(EMBEDDED_DATA));
+      saveLocal();
+    }
+  }
+
+  renderAll();
+  renderCategoryUI();
+  bindBillTypeChange();
+  if(localStorage.getItem("theme")==="dark") document.body.classList.add("dark");
+}
+
+function saveLocal(){
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}
+
+async function saveData(){
+  saveLocal();
+  if(isCloudMode){
+    setSyncStatus("syncing", "同步中...");
+    try {
+      await cloudSave(data);
+      setSyncStatus("ok", "已同步");
+    } catch(e) {
+      console.error("云端保存失败:", e);
+      setSyncStatus("error", "保存到本地，云端同步失败");
+    }
+  }
+}
+
+function loadCategory(){
+  const c = localStorage.getItem(CAT_KEY);
+  if(c){
+    try {
+      categoryConfig = JSON.parse(c);
+      if(!categoryConfig.expenseColors) categoryConfig.expenseColors = {};
+      if(!categoryConfig.incomeColors) categoryConfig.incomeColors = {};
+    } catch(e) {}
+  }
+}
+function saveCategory(){
+  localStorage.setItem(CAT_KEY, JSON.stringify(categoryConfig));
+}
+
+function setToday(){
+  const d = new Date();
+  currentDate = d.toISOString().split("T")[0];
+  document.getElementById("datePicker").value = currentDate;
+  document.getElementById("todoStartDate").value = currentDate;
+}
+
+function switchTab(tabName){
+  activeTab = tabName;
+  document.querySelectorAll(".tab-panel").forEach(p=>p.classList.add("hidden"));
+  document.getElementById("panel-"+tabName).classList.remove("hidden");
+  document.querySelectorAll(".tab-btn").forEach(b=>b.classList.remove("tab-active"));
+  document.querySelector(`.tab-btn[data-tab="${tabName}"]`).classList.add("tab-active");
+  renderAll();
+}
+
+function renderAll(){
+  renderBill();
+  renderFood();
+  renderTodo();
+  renderSaving();
+}
+
+// 分类UI渲染
+function renderCategoryUI(){
+  const expWrap = document.getElementById("expCatList");
+  const incWrap = document.getElementById("incCatList");
+  expWrap.innerHTML = "";
+  incWrap.innerHTML = "";
+  categoryConfig.expense.forEach((name, idx)=>{
+    const color = categoryConfig.expenseColors[name] || DEFAULT_PALETTE[idx % DEFAULT_PALETTE.length];
+    const span = document.createElement("span");
+    span.className = "px-2 py-1 rounded card flex items-center gap-1.5";
+    span.innerHTML = `<input type="color" class="catColorPicker" data-type="exp" data-name="${name}" value="${color}" title="设置${name}的颜色">${name}<button class="delExpCat text-red-400 text-xs" data-idx="${idx}">×</button>`;
+    expWrap.appendChild(span);
+  })
+  categoryConfig.income.forEach((name, idx)=>{
+    const color = categoryConfig.incomeColors[name] || DEFAULT_PALETTE[idx % DEFAULT_PALETTE.length];
+    const span = document.createElement("span");
+    span.className = "px-2 py-1 rounded card flex items-center gap-1.5";
+    span.innerHTML = `<input type="color" class="catColorPicker" data-type="inc" data-name="${name}" value="${color}" title="设置${name}的颜色">${name}<button class="delIncCat text-red-400 text-xs" data-idx="${idx}">×</button>`;
+    incWrap.appendChild(span);
+  })
+  refreshBillCatSelect();
+}
+function refreshBillCatSelect(){
+  const type = document.getElementById("billType").value;
+  const sel = document.getElementById("billCat");
+  sel.innerHTML = "";
+  const list = type === "exp" ? categoryConfig.expense : categoryConfig.income;
+  list.forEach(c=>{
+    const opt = document.createElement("option");
+    opt.value = c; opt.innerText = c;
+    sel.appendChild(opt);
+  })
+}
+function bindBillTypeChange(){
+  document.getElementById("billType").onchange = refreshBillCatSelect;
+}
+
+// ===== 记账 =====
+function renderBill(){
+  const listEl = document.getElementById("billList");
+  const dayBills = data.bills.filter(x=>x.date === currentDate);
+  listEl.innerHTML = "";
+  let todayInc = 0, todayExp = 0;
+  dayBills.forEach(item=>{
+    if(item.type==='inc') todayInc += Number(item.amt);
+    else todayExp += Number(item.amt);
+  });
+  document.getElementById("todayInc").innerText = todayInc.toFixed(2);
+  document.getElementById("todayExp").innerText = todayExp.toFixed(2);
+  document.getElementById("todayBal").innerText = (todayInc - todayExp).toFixed(2);
+  dayBills.forEach((item)=>{
+    const div = document.createElement("div");
+    div.className = "flex justify-between items-center p-2 rounded card";
+    div.innerHTML = `<div>${item.type==='inc'?'➕收入':'➖支出'} | ${item.cat} | ${item.amt}元 ${item.note?"【"+item.note+"】":""}</div><button class="delBill text-red-500" data-idx="${data.bills.indexOf(item)}">删除</button>`;
+    listEl.appendChild(div);
+  })
+  const [y,m] = currentDate.split("-");
+  const monthBills = data.bills.filter(x=>x.date.startsWith(y+"-"+m));
+  let inc = 0, exp =0;
+  monthBills.forEach(x=>{ if(x.type==='inc') inc += Number(x.amt); else exp += Number(x.amt); })
+  document.getElementById("sumInc").innerText = inc.toFixed(2);
+  document.getElementById("sumExp").innerText = exp.toFixed(2);
+  document.getElementById("sumBal").innerText = (inc-exp).toFixed(2);
+  drawBillChart(monthBills);
+}
+function drawBillChart(monthBills){
+  const ctx = document.getElementById("billChart").getContext("2d");
+  const catMap = {};
+  monthBills.forEach(b=>{ if(b.type==="exp"){ if(!catMap[b.cat]) catMap[b.cat]=0; catMap[b.cat] += Number(b.amt); } })
+  const labels = Object.keys(catMap);
+  const vals = labels.map(k=>catMap[k]);
+  const colors = labels.map((cat, i) => categoryConfig.expenseColors[cat] || DEFAULT_PALETTE[i % DEFAULT_PALETTE.length]);
+  if(billChart) billChart.destroy();
+  billChart = new Chart(ctx,{ type:"pie", data:{labels,datasets:[{data:vals,backgroundColor:colors}]}, options:{responsive:true,plugins:{legend:{position:"bottom"}}} })
+}
+function addBill(){
+  const type = document.getElementById("billType").value;
+  const cat = document.getElementById("billCat").value;
+  const amt = document.getElementById("billAmt").value;
+  const note = document.getElementById("billNote").value.trim();
+  if(!amt || Number(amt)<=0) return alert("请输入合法金额");
+  data.bills.push({date:currentDate,type,cat,amt,note});
+  saveData(); renderBill();
+  document.getElementById("billAmt").value=""; document.getElementById("billNote").value="";
+}
+
+// ===== 饮食 =====
+function renderFood(){
+  const listEl = document.getElementById("foodList");
+  const dayFood = data.foods.filter(x=>x.date === currentDate);
+  listEl.innerHTML = "";
+  let totalCal = 0, totalProtein = 0, totalFat = 0, totalCarb = 0;
+  dayFood.forEach((item)=>{
+    totalCal += Number(item.cal || 0);
+    totalProtein += Number(item.protein || 0);
+    totalFat += Number(item.fat || 0);
+    totalCarb += Number(item.carb || 0);
+    const div = document.createElement("div");
+    div.className = "p-2 rounded card";
+    const nutParts = [];
+    if(item.protein) nutParts.push(`蛋白${item.protein}g`);
+    if(item.fat) nutParts.push(`脂肪${item.fat}g`);
+    if(item.carb) nutParts.push(`碳水${item.carb}g`);
+    const nutStr = nutParts.length ? ` · ${nutParts.join(" / ")}` : "";
+    div.innerHTML = `<div class="flex justify-between items-center"><div>${item.meal}｜${item.name} ${item.cal}kcal${nutStr} ${item.note?"【"+item.note+"】":""}</div><button class="delFood text-red-500" data-idx="${data.foods.indexOf(item)}">删除</button></div>`;
+    listEl.appendChild(div);
+  })
+  document.getElementById("calTotal").innerText = totalCal;
+  document.getElementById("proteinTotal").innerText = totalProtein.toFixed(1);
+  document.getElementById("fatTotal").innerText = totalFat.toFixed(1);
+  document.getElementById("carbTotal").innerText = totalCarb.toFixed(1);
+}
+function addFood(){
+  const meal = document.getElementById("foodMeal").value;
+  const name = document.getElementById("foodName").value.trim();
+  const cal = document.getElementById("foodCal").value;
+  const note = document.getElementById("foodNote").value.trim();
+  const protein = document.getElementById("foodProtein").value;
+  const fat = document.getElementById("foodFat").value;
+  const carb = document.getElementById("foodCarb").value;
+  if(!name) return alert("请输入食物名称");
+  data.foods.push({date:currentDate, meal, name, cal:cal||0, protein:protein||0, fat:fat||0, carb:carb||0, note});
+  saveData(); renderFood();
+  ["foodName","foodCal","foodNote","foodProtein","foodFat","foodCarb"].forEach(id=>document.getElementById(id).value="");
+}
+
+// ===== 待办 =====
+function renderTodo(){
+  const listEl = document.getElementById("todoList");
+  const dayTodo = data.todos.filter(x=>x.date === currentDate);
+  listEl.innerHTML = "";
+
+  // 类别显示顺序：工作 → 日常 → 出行
+  const catOrder = [
+    {key:"work", label:"💼 工作"},
+    {key:"daily", label:"🏠 日常"},
+    {key:"travel", label:"🚗 出行"}
+  ];
+  // 兼容旧数据：无类别的待办默认归入“日常”
+  const catOf = (t)=> t.cat || "daily";
+  const priSort = {high:0, mid:1, low:2};
+
+  catOrder.forEach(cat=>{
+    const items = dayTodo.filter(t=>catOf(t) === cat.key);
+    if(items.length === 0) return; // 该类别无任务则不显示
+
+    // 排序：开始时间(早→晚) → 结束时间(早→晚) → 级别(高→低)
+    items.sort((a,b)=>{
+      const as = a.startTime || "99:99", bs = b.startTime || "99:99";
+      if(as !== bs) return as.localeCompare(bs);
+      const ae = a.endTime || "99:99", be = b.endTime || "99:99";
+      if(ae !== be) return ae.localeCompare(be);
+      return (priSort[a.pri] ?? 1) - (priSort[b.pri] ?? 1);
+    });
+
+    // 类别标题
+    const head = document.createElement("div");
+    head.className = "text-sm font-bold opacity-80 mt-3 mb-1 flex items-center gap-1";
+    head.innerHTML = `${cat.label}<span class="text-xs opacity-50">(${items.length})</span>`;
+    listEl.appendChild(head);
+
+    items.forEach((item)=>{
+      const div = document.createElement("div");
+      div.className = "flex justify-between items-center p-2 rounded card";
+      const priClass = item.pri==='high'?'priority-high':item.pri==='mid'?'priority-mid':'priority-low';
+      let timeStr = "";
+      if(item.startTime && item.endTime) timeStr = `🕐 ${item.startTime}-${item.endTime} `;
+      else if(item.startTime) timeStr = `🕐 ${item.startTime} `;
+      else if(item.endTime) timeStr = `🕐 ~${item.endTime} `;
+      div.innerHTML = `<label class="flex items-center gap-2 ${item.done?'opacity-50 line-through':''}"><input type="checkbox" class="todoCheck" data-idx="${data.todos.indexOf(item)}" ${item.done?'checked':''}><span class="${priClass}">${timeStr}${item.text}</span></label><button class="delTodo text-red-500" data-idx="${data.todos.indexOf(item)}">删除</button>`;
+      listEl.appendChild(div);
+    });
+  });
+
+  if(dayTodo.length === 0){
+    listEl.innerHTML = '<div class="text-sm opacity-50 text-center py-2">当日暂无待办</div>';
+  }
+
+  const banner = document.getElementById("upcomingTodoBanner");
+  const futureTodos = data.todos.filter(x=>x.date > currentDate);
+  if(futureTodos.length > 0){
+    banner.classList.remove("hidden");
+    const dates = [...new Set(futureTodos.map(x=>x.date))].sort();
+    const days = Math.round((new Date(dates[dates.length-1]) - new Date(dates[0])) / 86400000) + 1;
+    document.getElementById("upcomingCount").innerText = days;
+    document.getElementById("upcomingTotal").innerText = futureTodos.length;
+  } else { banner.classList.add("hidden"); }
+}
+function getDateRange(startDateStr, endDateStr){
+  const dates = [];
+  const start = new Date(startDateStr);
+  const end = new Date(endDateStr);
+  if(end < start) return [startDateStr];
+  const cur = new Date(start);
+  while(cur <= end){ dates.push(cur.toISOString().split("T")[0]); cur.setDate(cur.getDate()+1); }
+  return dates;
+}
+function addTodo(){
+  const text = document.getElementById("todoText").value.trim();
+  const cat = document.getElementById("todoCat").value;
+  const pri = document.getElementById("todoPri").value;
+  const startTime = document.getElementById("todoStartTime").value;
+  const endTime = document.getElementById("todoEndTime").value;
+  const startDateInput = document.getElementById("todoStartDate").value;
+  const endDateInput = document.getElementById("todoEndDate").value;
+  if(!text) return alert("请输入待办内容");
+  if(!startDateInput) return alert("请选择任务日期");
+  let dates = (endDateInput && endDateInput > startDateInput) ? getDateRange(startDateInput, endDateInput) : [startDateInput];
+  dates.forEach(d=>{ data.todos.push({date:d, text, cat, pri, done:false, startTime:startTime||"", endTime:endTime||""}); });
+  saveData(); renderTodo();
+  ["todoText","todoStartTime","todoEndTime","todoEndDate"].forEach(id=>document.getElementById(id).value="");
+  if(dates.length > 1) alert(`已为 ${dates.length} 天各添加一条任务`);
+}
+
+// ===== 储蓄 =====
+function renderSaving(){
+  const listEl = document.getElementById("savList");
+  listEl.innerHTML = "";
+  let total = 0;
+  data.savings.forEach((acc, idx)=>{
+    total += Number(acc.balance);
+    const div = document.createElement("div");
+    div.className = "card rounded-lg p-4";
+    div.innerHTML = `
+      <div class="flex justify-between items-center mb-2">
+        <div><span class="font-bold text-lg">${acc.name}</span>${acc.note?`<span class="text-sm opacity-60 ml-2">${acc.note}</span>`:""}</div>
+        <div class="flex items-center gap-2"><span class="font-bold text-lg text-green-600 dark:text-green-400">${Number(acc.balance).toFixed(2)} 元</span><button class="delSav text-red-500 text-sm" data-idx="${idx}">删除账户</button></div>
+      </div>
+      <div class="flex gap-2 mb-2">
+        <input type="number" step="0.01" class="savAmt flex-1 px-2 py-1 rounded" placeholder="金额" data-idx="${idx}">
+        <button class="savDeposit btn-primary px-3 py-1 rounded" data-idx="${idx}">存入</button>
+        <button class="savWithdraw px-3 py-1 rounded card" data-idx="${idx}">取出</button>
+      </div>
+      ${acc.history && acc.history.length ? `<details class="mt-2"><summary class="text-sm opacity-70 cursor-pointer">交易记录（${acc.history.length}笔）</summary><div class="mt-2 space-y-1 text-sm max-h-40 overflow-auto">${acc.history.map(h=>`<div class="flex justify-between opacity-80"><span>${h.date} ${h.type==='deposit'?'➕存入':'➖取出'} ${h.amt}元</span></div>`).join('')}</div></details>` : '<div class="text-sm opacity-50">暂无交易记录</div>'}
+    `;
+    listEl.appendChild(div);
+  });
+  document.getElementById("savCount").innerText = data.savings.length;
+  document.getElementById("savTotal").innerText = total.toFixed(2);
+}
+function addSavAccount(){
+  const name = document.getElementById("savName").value.trim();
+  const init = Number(document.getElementById("savInit").value) || 0;
+  const note = document.getElementById("savNote").value.trim();
+  if(!name) return alert("请输入账户名称");
+  if(data.savings.some(a=>a.name===name)) return alert("账户名已存在");
+  data.savings.push({name, balance:init, note, history: init>0?[{date:currentDate,type:'deposit',amt:init,note:'初始存入'}]:[]});
+  saveData(); renderSaving();
+  ["savName","savInit","savNote"].forEach(id=>document.getElementById(id).value="");
+}
+
+// 导出/导入
+function exportData(){
+  const blob = new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = `record_backup_${new Date().toISOString().slice(0,10)}.json`;
+  a.click(); URL.revokeObjectURL(url);
+}
+function importData(file){
+  const reader = new FileReader();
+  reader.onload = (e)=>{
+    try {
+      const imported = JSON.parse(e.target.result);
+      if(imported.bills) data.bills = imported.bills;
+      if(imported.foods) data.foods = imported.foods;
+      if(imported.todos) data.todos = imported.todos;
+      if(imported.savings) data.savings = imported.savings;
+      saveData(); renderAll();
+      alert("导入成功！");
+    } catch(err) { alert("导入失败：文件格式不正确。"); }
+  };
+  reader.readAsText(file);
+}
+
+// 手动同步
+async function manualSync(){
+  if(!isCloudMode){
+    alert("未配置云端地址，无法同步。请先在代码顶部填入 Supabase 配置。");
+    return;
+  }
+  setSyncStatus("syncing", "同步中...");
+  try {
+    const cloudData = await cloudLoad();
+    if(cloudData){
+      // 云端数据较新，合并
+      data = cloudData;
+      saveLocal();
+      renderAll();
+    }
+    await cloudSave(data);
+    setSyncStatus("ok", "已同步");
+  } catch(e) {
+    setSyncStatus("error", "同步失败：" + e.message);
+  }
+}
+
+// 事件绑定
+function bindEvents(){
+  document.querySelectorAll(".tab-btn").forEach(btn=>{ btn.onclick = ()=> switchTab(btn.dataset.tab); })
+  document.getElementById("datePicker").onchange = (e)=>{ currentDate = e.target.value; renderAll(); }
+  document.getElementById("todayBtn").onclick = setToday;
+  document.getElementById("themeBtn").onclick = ()=>{ document.body.classList.toggle("dark"); localStorage.setItem("theme", document.body.classList.contains("dark")?"dark":"light"); }
+  document.getElementById("exportBtn").onclick = exportData;
+  document.getElementById("importBtn").onclick = ()=> document.getElementById("importFile").click();
+  document.getElementById("importFile").onchange = (e)=>{ if(e.target.files[0]){ importData(e.target.files[0]); e.target.value=""; } }
+  document.getElementById("syncBtn").onclick = manualSync;
+  document.getElementById("addBill").onclick = addBill;
+  document.getElementById("addFood").onclick = addFood;
+  document.getElementById("addTodo").onclick = addTodo;
+  document.getElementById("addSavAccount").onclick = addSavAccount;
+
+  document.getElementById("addExpCatBtn").onclick = ()=>{
+    const val = document.getElementById("newExpCat").value.trim();
+    if(!val || categoryConfig.expense.includes(val)) return;
+    categoryConfig.expense.push(val);
+    if(!categoryConfig.expenseColors[val]) categoryConfig.expenseColors[val] = DEFAULT_PALETTE[categoryConfig.expense.length % DEFAULT_PALETTE.length];
+    saveCategory(); renderCategoryUI(); document.getElementById("newExpCat").value = "";
+  }
+  document.getElementById("addIncCatBtn").onclick = ()=>{
+    const val = document.getElementById("newIncCat").value.trim();
+    if(!val || categoryConfig.income.includes(val)) return;
+    categoryConfig.income.push(val);
+    if(!categoryConfig.incomeColors[val]) categoryConfig.incomeColors[val] = DEFAULT_PALETTE[categoryConfig.income.length % DEFAULT_PALETTE.length];
+    saveCategory(); renderCategoryUI(); document.getElementById("newIncCat").value = "";
+  }
+
+  document.addEventListener("input", (e)=>{
+    if(e.target.classList.contains("catColorPicker")){
+      const type = e.target.dataset.type;
+      const name = e.target.dataset.name;
+      if(type === "exp") categoryConfig.expenseColors[name] = e.target.value;
+      else categoryConfig.incomeColors[name] = e.target.value;
+      saveCategory();
+      if(activeTab === "bill") renderBill();
+    }
+  });
+
+  document.getElementById("expCatList").addEventListener("click",e=>{
+    if(e.target.classList.contains("delExpCat")){
+      const idx = Number(e.target.dataset.idx);
+      const name = categoryConfig.expense[idx];
+      categoryConfig.expense.splice(idx,1);
+      delete categoryConfig.expenseColors[name];
+      saveCategory(); renderCategoryUI();
+    }
+  })
+  document.getElementById("incCatList").addEventListener("click",e=>{
+    if(e.target.classList.contains("delIncCat")){
+      const idx = Number(e.target.dataset.idx);
+      const name = categoryConfig.income[idx];
+      categoryConfig.income.splice(idx,1);
+      delete categoryConfig.incomeColors[name];
+      saveCategory(); renderCategoryUI();
+    }
+  })
+
+  document.getElementById("billList").addEventListener("click",(e)=>{
+    if(e.target.classList.contains("delBill")){
+      data.bills.splice(Number(e.target.dataset.idx),1);
+      saveData(); renderBill();
+    }
+  })
+  document.getElementById("foodList").addEventListener("click",(e)=>{
+    if(e.target.classList.contains("delFood")){
+      data.foods.splice(Number(e.target.dataset.idx),1);
+      saveData(); renderFood();
+    }
+  })
+  document.getElementById("todoList").addEventListener("click",(e)=>{
+    if(e.target.classList.contains("delTodo")){
+      data.todos.splice(Number(e.target.dataset.idx),1);
+      saveData(); renderTodo();
+    }
+    if(e.target.classList.contains("todoCheck")){
+      data.todos[Number(e.target.dataset.idx)].done = e.target.checked;
+      saveData(); renderTodo();
+    }
+  })
+
+  document.getElementById("savList").addEventListener("click",(e)=>{
+    const idx = Number(e.target.dataset.idx);
+    if(isNaN(idx)) return;
+    if(e.target.classList.contains("delSav")){
+      if(confirm(`确定删除账户"${data.savings[idx].name}"？`)){
+        data.savings.splice(idx,1);
+        saveData(); renderSaving();
+      }
+    } else if(e.target.classList.contains("savDeposit") || e.target.classList.contains("savWithdraw")){
+      const amt = Number(document.querySelector(`.savAmt[data-idx="${idx}"]`).value);
+      if(!amt || amt <= 0) return alert("请输入合法金额");
+      const isDeposit = e.target.classList.contains("savDeposit");
+      if(!isDeposit && amt > Number(data.savings[idx].balance)) return alert("取出金额不能大于余额");
+      data.savings[idx].balance = Number(data.savings[idx].balance) + (isDeposit ? amt : -amt);
+      if(!data.savings[idx].history) data.savings[idx].history = [];
+      data.savings[idx].history.push({date:currentDate, type:isDeposit?'deposit':'withdraw', amt, note:''});
+      saveData(); renderSaving();
+    }
+  });
+}
+
+window.onload = init;
+</script>
+</body>
+</html>
