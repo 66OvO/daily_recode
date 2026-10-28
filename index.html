@@ -129,6 +129,7 @@
       <button class="tab-btn px-4 py-2" data-tab="food">🍽️ 饮食</button>
       <button class="tab-btn px-4 py-2" data-tab="todo">✅ 待办</button>
       <button class="tab-btn px-4 py-2" data-tab="saving">🏦 储蓄</button>
+      <button class="tab-btn px-4 py-2" data-tab="daily">📝 日常</button>
     </div>
 
     <!-- ========== 记账面板 ========== -->
@@ -315,6 +316,45 @@
 
       <div id="savList" class="space-y-3"></div>
     </div>
+
+    <!-- ========== 日常面板 ========== -->
+    <div class="tab-panel hidden" id="panel-daily">
+      <div class="card rounded-lg p-4 mb-4">
+        <h2 class="font-bold mb-3">分类管理（点击色块可改饼图颜色）</h2>
+        <div class="flex gap-1 mb-2">
+          <input id="newDailyCat" placeholder="新增日常分类" class="flex-1 px-2 py-1 rounded">
+          <button id="addDailyCatBtn" class="btn-primary px-2 py-1 rounded">添加</button>
+        </div>
+        <div id="dailyCatList" class="flex flex-wrap gap-2"></div>
+      </div>
+
+      <div class="card rounded-lg p-4 mb-4">
+        <h2 class="font-bold mb-3">新增日常</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <input type="text" id="dailyTitle" placeholder="标题">
+          <select id="dailyCat"></select>
+          <input type="time" id="dailyStartTime" placeholder="开始时间">
+          <input type="time" id="dailyEndTime" placeholder="结束时间">
+        </div>
+        <input type="text" id="dailyNote" placeholder="备注" class="w-full px-2 py-1 rounded mt-3">
+        <button id="addDaily" class="btn-primary px-4 py-2 rounded mt-3">添加记录</button>
+      </div>
+
+      <div class="card rounded-lg p-4 mb-4">
+        <h2 class="font-bold mb-3">当日日常</h2>
+        <div id="dailyList" class="space-y-2 max-h-64 overflow-auto"></div>
+      </div>
+
+      <div class="card rounded-lg p-4 mb-4">
+        <h2 class="font-bold mb-3">当日24小时分布</h2>
+        <canvas id="dailyChart"></canvas>
+      </div>
+
+      <div class="card rounded-lg p-4">
+        <h2 class="font-bold mb-3">本周每类时长</h2>
+        <canvas id="dailyWeekChart"></canvas>
+      </div>
+    </div>
   </div>
 
 <script>
@@ -338,7 +378,8 @@ const EMBEDDED_DATA = {
   ],
   "foods": [],
   "todos": [],
-  "savings": []
+  "savings": [],
+  "dailies": []
 };
 
 const STORAGE_KEY = "daily_record_data";
@@ -346,13 +387,16 @@ const CAT_KEY = "bill_category_config";
 let currentDate = "";
 let activeTab = "bill";
 let billChart = null;
+let dailyChart = null;
+let dailyWeekChart = null;
 let isCloudMode = false;
 
 let data = {
   bills: [],
   foods: [],
   todos: [],
-  savings: []
+  savings: [],
+  dailies: []
 };
 
 let categoryConfig = {
@@ -364,6 +408,10 @@ let categoryConfig = {
   },
   incomeColors: {
     "工资": "#22c55e", "红包": "#f97316", "存款": "#06b6d4", "其他": "#64748b"
+  },
+  daily: ["运动", "学习", "娱乐", "其他"],
+  dailyColors: {
+    "运动": "#f59e0b", "学习": "#3b82f6", "娱乐": "#ec4899", "其他": "#64748b"
   }
 };
 
@@ -429,6 +477,7 @@ async function init(){
         if(!data.foods) data.foods = [];
         if(!data.todos) data.todos = [];
         if(!data.bills) data.bills = [];
+        if(!data.dailies) data.dailies = [];
         // 分类配置跨设备同步
         if(data.categoryConfig){
           categoryConfig = data.categoryConfig;
@@ -468,6 +517,7 @@ async function init(){
       try {
         data = JSON.parse(raw);
         if(!data.savings) data.savings = [];
+        if(!data.dailies) data.dailies = [];
       } catch(e) { data = JSON.parse(JSON.stringify(EMBEDDED_DATA)); }
     } else {
       data = JSON.parse(JSON.stringify(EMBEDDED_DATA));
@@ -547,6 +597,7 @@ function renderAll(){
   renderFood();
   renderTodo();
   renderSaving();
+  renderDaily();
 }
 
 // 分类UI渲染
@@ -570,6 +621,7 @@ function renderCategoryUI(){
     incWrap.appendChild(span);
   })
   refreshBillCatSelect();
+  renderDailyCatUI();
 }
 function refreshBillCatSelect(){
   const type = document.getElementById("billType").value;
@@ -800,6 +852,169 @@ function addSavAccount(){
   ["savName","savInit","savNote"].forEach(id=>document.getElementById(id).value="");
 }
 
+// ===== 日常 =====
+function renderDailyCatUI(){
+  if(!categoryConfig.daily){
+    categoryConfig.daily = ["运动", "学习", "娱乐", "其他"];
+    categoryConfig.dailyColors = categoryConfig.dailyColors || {};
+    categoryConfig.daily.forEach((n,i)=>{ if(!categoryConfig.dailyColors[n]) categoryConfig.dailyColors[n] = DEFAULT_PALETTE[i % DEFAULT_PALETTE.length]; });
+  }
+  if(!categoryConfig.dailyColors) categoryConfig.dailyColors = {};
+  const wrap = document.getElementById("dailyCatList");
+  wrap.innerHTML = "";
+  categoryConfig.daily.forEach((name, idx)=>{
+    const color = categoryConfig.dailyColors[name] || DEFAULT_PALETTE[idx % DEFAULT_PALETTE.length];
+    const span = document.createElement("span");
+    span.className = "px-2 py-1 rounded card flex items-center gap-1.5";
+    span.innerHTML = `<input type="color" class="catColorPicker" data-type="daily" data-name="${name}" value="${color}" title="设置${name}的颜色">${name}<button class="delDailyCat text-red-400 text-xs" data-idx="${idx}">×</button>`;
+    wrap.appendChild(span);
+  })
+  refreshDailyCatSelect();
+}
+function refreshDailyCatSelect(){
+  const sel = document.getElementById("dailyCat");
+  sel.innerHTML = "";
+  (categoryConfig.daily||[]).forEach(c=>{
+    const opt = document.createElement("option");
+    opt.value = c; opt.innerText = c;
+    sel.appendChild(opt);
+  })
+}
+function timeToMin(t){
+  if(!t) return 0;
+  const [h,m] = t.split(":").map(Number);
+  return (h||0)*60 + (m||0);
+}
+function minutesToHours(mins){
+  const h = Math.floor(mins/60);
+  const m = mins%60;
+  if(h===0) return m+"分钟";
+  if(m===0) return h+"小时";
+  return h+"小时"+m+"分";
+}
+function renderDaily(){
+  const listEl = document.getElementById("dailyList");
+  const dayDaily = data.dailies.filter(x=>x.date === currentDate);
+  listEl.innerHTML = "";
+  dayDaily.forEach((item)=>{
+    const div = document.createElement("div");
+    div.className = "flex justify-between items-center p-2 rounded card";
+    let timeStr = "";
+    if(item.startTime && item.endTime) timeStr = `🕐 ${item.startTime}-${item.endTime}`;
+    else if(item.startTime) timeStr = `🕐 ${item.startTime} 起`;
+    else if(item.endTime) timeStr = `🕐 至 ${item.endTime}`;
+    div.innerHTML = `<div>📝 ${item.title} | ${item.cat} ${timeStr} ${item.note?"【"+item.note+"】":""}</div><button class="delDaily text-red-500" data-idx="${data.dailies.indexOf(item)}">删除</button>`;
+    listEl.appendChild(div);
+  });
+  if(dayDaily.length === 0){
+    listEl.innerHTML = '<div class="text-sm opacity-50 text-center py-2">当日暂无日常记录</div>';
+  }
+  drawDailyChart();
+  drawDailyWeekChart();
+}
+function toLocalDateStr(d){
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,"0");
+  const day = String(d.getDate()).padStart(2,"0");
+  return `${y}-${m}-${day}`;
+}
+function drawDailyChart(){
+  const panel = document.getElementById("panel-daily");
+  if(panel.classList.contains("hidden")) return; // 面板隐藏时先不画，避免画布尺寸为0
+  // 饼图代表当天24小时(1440分钟)：按分类累计当日时长，剩余部分为"未记录"
+  const dayDaily = data.dailies.filter(x=>x.date === currentDate);
+  const catMap = {};
+  let totalMins = 0;
+  dayDaily.forEach(d=>{
+    if(!d.startTime || !d.endTime) return;
+    const mins = timeToMin(d.endTime) - timeToMin(d.startTime);
+    if(mins < 0) return;
+    if(!catMap[d.cat]) catMap[d.cat] = 0;
+    catMap[d.cat] += mins;
+    totalMins += mins;
+  });
+  const labels = Object.keys(catMap);
+  const vals = labels.map(k=>catMap[k]);
+  const colors = labels.map((cat)=> (categoryConfig.dailyColors&&categoryConfig.dailyColors[cat]) || DEFAULT_PALETTE[labels.indexOf(cat) % DEFAULT_PALETTE.length]);
+  const freeMins = 1440 - totalMins;
+  if(freeMins > 0){
+    labels.push("未记录");
+    vals.push(freeMins);
+    colors.push("#d1d5db");
+  }
+  const ctx = document.getElementById("dailyChart").getContext("2d");
+  if(dailyChart) dailyChart.destroy();
+  dailyChart = new Chart(ctx,{
+    type:"pie",
+    data:{labels,datasets:[{data:vals,backgroundColor:colors}]},
+    options:{
+      responsive:true,
+      plugins:{legend:{position:"bottom"}, tooltip:{callbacks:{label:(ctx)=>` ${ctx.label}: ${minutesToHours(ctx.parsed)}`}}}
+    }
+  });
+}
+function drawDailyWeekChart(){
+  const panel = document.getElementById("panel-daily");
+  if(panel.classList.contains("hidden")) return;
+  // 本周一 00:00 到今天
+  const d = new Date(currentDate + "T00:00:00");
+  const dow = (d.getDay() + 6) % 7; // 周一=0
+  const monday = new Date(d);
+  monday.setDate(d.getDate() - dow);
+  const mondayStr = toLocalDateStr(monday);
+  const catMap = {};
+  data.dailies.forEach(item=>{
+    if(item.date < mondayStr || item.date > currentDate) return;
+    if(!item.startTime || !item.endTime) return;
+    const mins = timeToMin(item.endTime) - timeToMin(item.startTime);
+    if(mins < 0) return;
+    if(!catMap[item.cat]) catMap[item.cat] = 0;
+    catMap[item.cat] += mins;
+  });
+  const ctx = document.getElementById("dailyWeekChart").getContext("2d");
+  if(dailyWeekChart) dailyWeekChart.destroy();
+  // 按时长从多到少排序
+  const entries = Object.entries(catMap).map(([cat,mins])=>({cat,mins}));
+  entries.sort((a,b)=>b.mins - a.mins);
+  const labels = entries.map(e=>e.cat);
+  const vals = entries.map(e=>Math.round(e.mins/60*10)/10); // 小时，1位小数
+  const colors = labels.map((cat)=> (categoryConfig.dailyColors&&categoryConfig.dailyColors[cat]) || DEFAULT_PALETTE[labels.indexOf(cat) % DEFAULT_PALETTE.length]);
+  if(entries.length === 0){
+    dailyWeekChart = new Chart(ctx,{
+      type:"bar",
+      data:{labels:["本周暂无记录"],datasets:[{data:[0],backgroundColor:"#e5e7eb"}]},
+      options:{responsive:true,indexAxis:"y",plugins:{legend:{display:false}},scales:{x:{beginAtZero:true}}}
+    });
+    return;
+  }
+  dailyWeekChart = new Chart(ctx,{
+    type:"bar",
+    data:{labels,datasets:[{data:vals,backgroundColor:colors}]},
+    options:{
+      responsive:true,
+      indexAxis:"y",
+      plugins:{
+        legend:{display:false},
+        tooltip:{callbacks:{label:(ctx)=>` ${minutesToHours(ctx.parsed.x*60)}`}}
+      },
+      scales:{x:{title:{display:true,text:"小时"},beginAtZero:true}}
+    }
+  });
+}
+function addDaily(){
+  const title = document.getElementById("dailyTitle").value.trim();
+  const cat = document.getElementById("dailyCat").value;
+  const note = document.getElementById("dailyNote").value.trim();
+  const startTime = document.getElementById("dailyStartTime").value;
+  const endTime = document.getElementById("dailyEndTime").value;
+  if(!title) return alert("请输入标题");
+  if(!startTime && !endTime) return alert("请至少填写开始或结束时间");
+  if(startTime && endTime && timeToMin(endTime) < timeToMin(startTime)) return alert("结束时间不能早于开始时间");
+  data.dailies.push({date:currentDate, title, cat, note, startTime, endTime});
+  saveData(); renderDaily();
+  ["dailyTitle","dailyNote","dailyStartTime","dailyEndTime"].forEach(id=>document.getElementById(id).value="");
+}
+
 // 导出/导入
 function exportData(){
   const blob = new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
@@ -817,6 +1032,7 @@ function importData(file){
       if(imported.foods) data.foods = imported.foods;
       if(imported.todos) data.todos = imported.todos;
       if(imported.savings) data.savings = imported.savings;
+      if(imported.dailies) data.dailies = imported.dailies;
       if(imported.categoryConfig){
         categoryConfig = imported.categoryConfig;
         if(!categoryConfig.expenseColors) categoryConfig.expenseColors = {};
@@ -842,6 +1058,7 @@ async function manualSync(){
       // 云端数据较新，合并
       data = cloudData;
       if(!data.savings) data.savings = [];
+      if(!data.dailies) data.dailies = [];
       if(!data.categoryConfig){
         data.categoryConfig = JSON.parse(JSON.stringify(categoryConfig));
       }
@@ -870,6 +1087,7 @@ function bindEvents(){
   document.getElementById("addFood").onclick = addFood;
   document.getElementById("addTodo").onclick = addTodo;
   document.getElementById("addSavAccount").onclick = addSavAccount;
+  document.getElementById("addDaily").onclick = addDaily;
 
   document.getElementById("addExpCatBtn").onclick = ()=>{
     const val = document.getElementById("newExpCat").value.trim();
@@ -885,15 +1103,29 @@ function bindEvents(){
     if(!categoryConfig.incomeColors[val]) categoryConfig.incomeColors[val] = DEFAULT_PALETTE[categoryConfig.income.length % DEFAULT_PALETTE.length];
     saveCategory(); renderCategoryUI(); document.getElementById("newIncCat").value = "";
   }
+  document.getElementById("addDailyCatBtn").onclick = ()=>{
+    const val = document.getElementById("newDailyCat").value.trim();
+    if(!val || (categoryConfig.daily||[]).includes(val)) return;
+    if(!categoryConfig.daily) categoryConfig.daily = [];
+    categoryConfig.daily.push(val);
+    if(!categoryConfig.dailyColors) categoryConfig.dailyColors = {};
+    if(!categoryConfig.dailyColors[val]) categoryConfig.dailyColors[val] = DEFAULT_PALETTE[categoryConfig.daily.length % DEFAULT_PALETTE.length];
+    saveCategory(); renderCategoryUI(); document.getElementById("newDailyCat").value = "";
+  }
 
   document.addEventListener("input", (e)=>{
     if(e.target.classList.contains("catColorPicker")){
       const type = e.target.dataset.type;
       const name = e.target.dataset.name;
       if(type === "exp") categoryConfig.expenseColors[name] = e.target.value;
-      else categoryConfig.incomeColors[name] = e.target.value;
+      else if(type === "inc") categoryConfig.incomeColors[name] = e.target.value;
+      else if(type === "daily"){
+        if(!categoryConfig.dailyColors) categoryConfig.dailyColors = {};
+        categoryConfig.dailyColors[name] = e.target.value;
+      }
       saveCategory();
       if(activeTab === "bill") renderBill();
+      if(activeTab === "daily") renderDaily();
     }
   });
 
@@ -912,6 +1144,15 @@ function bindEvents(){
       const name = categoryConfig.income[idx];
       categoryConfig.income.splice(idx,1);
       delete categoryConfig.incomeColors[name];
+      saveCategory(); renderCategoryUI();
+    }
+  })
+  document.getElementById("dailyCatList").addEventListener("click",e=>{
+    if(e.target.classList.contains("delDailyCat")){
+      const idx = Number(e.target.dataset.idx);
+      const name = (categoryConfig.daily||[])[idx];
+      categoryConfig.daily.splice(idx,1);
+      if(categoryConfig.dailyColors) delete categoryConfig.dailyColors[name];
       saveCategory(); renderCategoryUI();
     }
   })
@@ -956,6 +1197,12 @@ function bindEvents(){
       if(!data.savings[idx].history) data.savings[idx].history = [];
       data.savings[idx].history.push({date:currentDate, type:isDeposit?'deposit':'withdraw', amt, note:''});
       saveData(); renderSaving();
+    }
+  });
+  document.getElementById("dailyList").addEventListener("click",(e)=>{
+    if(e.target.classList.contains("delDaily")){
+      data.dailies.splice(Number(e.target.dataset.idx),1);
+      saveData(); renderDaily();
     }
   });
 }
